@@ -1,0 +1,102 @@
+package org.zsnenyadev.armor.fix.armorFix;
+
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.plugin.java.JavaPlugin;
+import org.zsnenyadev.armor.fix.armorFix.commands.GetBottleCommand;
+
+import java.io.File;
+import java.io.IOException;
+
+public final class ArmorFix extends JavaPlugin {
+
+    private File cooldownsFile;
+    private FileConfiguration cooldownsConfig;
+
+    @Override
+    public void onEnable() {
+        getLogger().info("ArmorFix enabled");
+
+        // save default config.yml (will create plugin folder and config if missing)
+        saveDefaultConfig();
+
+        // ensure data folder exists and prepare cooldowns.yml
+        if (!getDataFolder().exists()) {
+            if (!getDataFolder().mkdirs()) {
+                getLogger().severe("Could not create plugin data folder");
+            }
+        }
+        cooldownsFile = new File(getDataFolder(), "cooldowns.yml");
+        if (!cooldownsFile.exists()) {
+            try {
+                if (!cooldownsFile.createNewFile()) {
+                    getLogger().severe("Could not create cooldowns.yml");
+                }
+            } catch (IOException e) {
+                getLogger().severe("Could not create cooldowns.yml: " + e.getMessage());
+            }
+        }
+        cooldownsConfig = YamlConfiguration.loadConfiguration(cooldownsFile);
+
+        // register command and listener (null-check command)
+        if (this.getCommand("getbottle") != null) {
+            this.getCommand("getbottle").setExecutor(new GetBottleCommand(this));
+        } else {
+            getLogger().warning("Command 'getbottle' is not defined in plugin.yml");
+        }
+        Bukkit.getPluginManager().registerEvents(new RepairListener(this), this);
+    }
+
+    @Override
+    public void onDisable() {
+        getLogger().info("ArmorFix disabled");
+        saveCooldowns();
+    }
+
+    public FileConfiguration getCooldowns() {
+        if (cooldownsConfig == null) {
+            if (cooldownsFile == null) {
+                cooldownsFile = new File(getDataFolder(), "cooldowns.yml");
+            }
+            if (!cooldownsFile.exists()) {
+                try {
+                    if (!cooldownsFile.createNewFile()) {
+                        getLogger().severe("Could not create cooldowns.yml");
+                    }
+                } catch (IOException e) {
+                    getLogger().severe("Could not create cooldowns.yml: " + e.getMessage());
+                }
+            }
+            cooldownsConfig = YamlConfiguration.loadConfiguration(cooldownsFile);
+        }
+        return cooldownsConfig;
+    }
+
+    public void saveCooldowns() {
+        if (cooldownsFile == null) {
+            cooldownsFile = new File(getDataFolder(), "cooldowns.yml");
+        }
+        if (cooldownsConfig == null) return;
+        try {
+            cooldownsConfig.save(cooldownsFile);
+        } catch (IOException e) {
+            getLogger().severe("Could not save cooldowns.yml: " + e.getMessage());
+        }
+    }
+
+    public String color(String s) {
+        if (s == null) return "";
+        return ChatColor.translateAlternateColorCodes('&', s);
+    }
+
+    public String getBottleName() {
+        return color(getConfig().getString("item-name", "&6Repair Bottle"));
+    }
+
+    public String serverVersion() {
+        String version = getServer().getClass().getPackage().getName();
+        return version.substring(version.lastIndexOf('.') + 1);
+    }
+}
