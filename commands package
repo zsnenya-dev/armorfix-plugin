@@ -1,0 +1,99 @@
+package org.zsnenyadev.armor.fix.armorFix.commands;
+
+import org.bukkit.Material;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.jetbrains.annotations.NotNull;
+import org.zsnenyadev.armor.fix.armorFix.ArmorFix;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.logging.Level;
+
+public class GetBottleCommand implements CommandExecutor {
+
+    private final ArmorFix plugin;
+
+    public GetBottleCommand(ArmorFix plugin) {
+        this.plugin = plugin;
+    }
+
+    @Override
+    public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, String[] args) {
+        if (!(sender instanceof Player)) {
+            sender.sendMessage(plugin.color("&cOnly players can use this command."));
+            return true;
+        }
+        Player p = (Player) sender;
+
+        if (!p.hasPermission("armorfix.getbottle")) {
+            p.sendMessage(plugin.color("&cYou don't have permission to use this."));
+            return true;
+        }
+
+        try {
+            ItemStack bottle = new ItemStack(Material.EXPERIENCE_BOTTLE, 1);
+            ItemMeta meta = bottle.getItemMeta();
+
+            // Safe display name
+            String name = plugin.getBottleName();
+            if (name == null || name.isEmpty()) {
+                name = plugin.color("&6Repair Bottle");
+            }
+
+            // Flexible lore retrieval: allow a single string or a list
+            List<String> loreConfig = Collections.emptyList();
+            Object raw = plugin.getConfig().get("item-lore");
+            if (raw instanceof List) {
+                List<?> rawList = (List<?>) raw;
+                List<String> tmp = new ArrayList<>(rawList.size());
+                for (Object o : rawList) {
+                    if (o != null) tmp.add(plugin.color(String.valueOf(o)));
+                }
+                loreConfig = tmp;
+            } else if (raw instanceof String) {
+                String s = (String) raw;
+                if (!s.isEmpty()) loreConfig = Collections.singletonList(plugin.color(s));
+            }
+
+            if (meta != null) {
+                meta.setDisplayName(name);
+                if (!loreConfig.isEmpty()) {
+                    // filter out empty lines
+                    List<String> colored = new ArrayList<>();
+                    for (String line : loreConfig) {
+                        if (line == null) continue;
+                        String c = plugin.color(line);
+                        if (!c.isEmpty()) colored.add(c);
+                    }
+                    if (!colored.isEmpty()) meta.setLore(colored);
+                }
+                bottle.setItemMeta(meta);
+            }
+
+            // Use addItem and handle leftovers robustly
+            Map<Integer, ItemStack> leftovers = p.getInventory().addItem(bottle);
+            if (leftovers.isEmpty()) {
+                p.sendMessage(plugin.color("&aYou received a repair bottle."));
+            } else {
+                // drop all leftover stacks at player's location
+                for (ItemStack left : leftovers.values()) {
+                    if (left != null && left.getAmount() > 0) {
+                        p.getWorld().dropItemNaturally(p.getLocation(), left);
+                    }
+                }
+                p.sendMessage(plugin.color("&eYour inventory was full. The repair bottle was dropped at your feet."));
+            }
+        } catch (Exception ex) {
+            plugin.getLogger().log(Level.SEVERE, "Failed to give repair bottle", ex);
+            p.sendMessage(plugin.color("&cAn error occurred while giving the repair bottle. Check server log."));
+        }
+
+        return true;
+    }
+}
