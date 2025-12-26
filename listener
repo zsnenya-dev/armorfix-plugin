@@ -1,0 +1,114 @@
+package org.zsnenyadev.armor.fix.armorFix;
+
+import org.bukkit.ChatColor;
+import org.bukkit.Material;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.inventory.meta.Damageable;
+import org.bukkit.inventory.meta.ItemMeta;
+
+import java.util.UUID;
+
+public record RepairListener(ArmorFix plugin) implements Listener {
+
+    @EventHandler
+    public void onPlayerUseBottle(PlayerInteractEvent event) {
+        if (event.getItem() == null) return;
+
+        // only handle main hand to avoid duplicate triggers (offhand + main)
+        if (event.getHand() != EquipmentSlot.HAND) return;
+
+        Action action = event.getAction();
+        if (action != Action.RIGHT_CLICK_AIR && action != Action.RIGHT_CLICK_BLOCK) return;
+
+        ItemStack item = event.getItem();
+        if (item.getType() != Material.EXPERIENCE_BOTTLE) return;
+
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) return;
+
+        // compare stripped display names so color codes don't break matching
+        String display = ChatColor.stripColor(meta.getDisplayName());
+        String configured = ChatColor.stripColor(plugin.getBottleName());
+        if (!display.equals(configured)) return;
+
+        event.setCancelled(true);
+
+        Player player = event.getPlayer();
+        UUID uid = player.getUniqueId();
+
+        long lastUse = plugin.getCooldowns().getLong(uid.toString(), 0L);
+        long cooldownSeconds = plugin.getConfig().getLong("cooldown", 60L);
+        long now = System.currentTimeMillis();
+        if (now - lastUse < cooldownSeconds * 1000L) {
+            long remaining = (cooldownSeconds * 1000L - (now - lastUse)) / 1000L;
+
+            String cooldownMsg = plugin.getConfig().getString(
+                    "messages.cooldown-message",
+                    "&cYou must wait %s before using another repair bottle."
+            );
+            player.sendMessage(plugin.color(String.format(cooldownMsg, remaining + "s")));
+            return;
+        }
+
+        PlayerInventory inv = player.getInventory();
+        ItemStack[] armor = inv.getArmorContents();
+        boolean repaired = false;
+        for (int i = 0; i < armor.length; i++) {
+            ItemStack piece = armor[i];
+            if (piece == null) continue;
+            if (piece.getType() == Material.AIR) continue;
+            ItemMeta pm = piece.getItemMeta();
+            if (pm instanceof Damageable dmg) {
+                int current = dmg.getDamage();
+                if (current > 0) {
+                    dmg.setDamage(0);
+                    piece.setItemMeta(dmg);
+                    armor[i] = piece;
+                    repaired = true;
+                }
+            }
+        }
+
+        if (repaired) {
+            // apply changed armor back to inventory
+            inv.setArmorContents(armor);
+
+            // consume one bottle from the main hand (we already ensured HAND)
+            ItemStack main = inv.getItemInMainHand();
+            if (main.getType() == Material.EXPERIENCE_BOTTLE) {
+                if (main.getAmount() > 1) {
+                    main.setAmount(main.getAmount() - 1);
+                } else {
+                    inv.setItemInMainHand(null);
+                }
+            } else {
+                // fallback: adjust the event item stack
+                int amount = item.getAmount();
+                if (amount > 1) item.setAmount(amount - 1);
+                else inv.remove(item);
+            }
+
+            plugin.getCooldowns().set(uid.toString(), now);
+            plugin.saveCooldowns();
+
+            String repairedMsg = plugin.getConfig().getString(
+                    "messages.repaired",
+                    "&aYour armor has been fully repaired."
+            );
+            player.sendMessage(plugin.color(repairedMsg));
+        } else {
+            String noArmorMsg = plugin.getConfig().getString(
+                    "messages.no_damaged_armor",
+                    "&eNo damaged armor to repair."
+            );
+            player.sendMessage(plugin.color(noArmorMsg));
+        }
+    }
+}
